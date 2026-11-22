@@ -17,6 +17,7 @@ from devtunnel.core.models import VpnServer
 DEFAULT_TIMEOUT_MS = 1_200
 DEFAULT_MAX_WORKERS = 12
 MAX_WORKERS_LIMIT = 32
+MAX_TARGETS = 500
 _MIN_TIMEOUT_MS = 250
 _MAX_TIMEOUT_MS = 5_000
 
@@ -170,6 +171,10 @@ def check_servers_reachability(
     unique_ips = list(dict.fromkeys(server.ip_address for server in server_list))
     if not unique_ips:
         return []
+    if len(unique_ips) > MAX_TARGETS:
+        raise ValueError(
+            f"At most {MAX_TARGETS} unique server IPs can be checked in one run."
+        )
 
     probe_function = probe or probe_host
     results_by_ip: dict[str, ReachabilityResult] = {}
