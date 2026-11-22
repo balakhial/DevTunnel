@@ -613,6 +613,16 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem(str(value))
                 self.table.setItem(row_index, column, item)
 
+    def closeEvent(self, event) -> None:
+        if self._is_busy():
+            self.status_label.setText(
+                "یک عملیات شبکه در حال اجراست؛ پس از پایان آن می‌توانید برنامه را ببندید."
+            )
+            event.ignore()
+            return
+
+        super().closeEvent(event)
+
     # ======================================================
     # Error handling
     # ======================================================
