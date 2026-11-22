@@ -42,6 +42,8 @@ class OpenVPNSession:
         self._management_buffer = b""
         self._management_password = secrets.token_urlsafe(32)
         self._log_lines: list[str] = []
+        self._log_path: Path | None = None
+        self._log_handle = None
         self._connected = False
 
     @property
@@ -118,6 +120,13 @@ class OpenVPNSession:
                 # provide the access boundary; chmod is best-effort there.
                 pass
 
+            self._log_path = work_dir / "openvpn.log"
+            self._log_handle = self._log_path.open(
+                "w",
+                encoding="utf-8",
+                errors="replace",
+            )
+
             port = self._free_loopback_port()
             command = self._build_command(profile_path, password_path, port)
 
@@ -129,8 +138,8 @@ class OpenVPNSession:
                 command,
                 cwd=str(work_dir),
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=self._log_handle,
+                stderr=subprocess.STDOUT,
                 close_fds=True,
                 creationflags=creationflags,
                 shell=False,
@@ -166,9 +175,12 @@ class OpenVPNSession:
 
         while time.monotonic() < deadline:
             if self._process is not None and self._process.poll() is not None:
+                details = self._startup_log_excerpt()
+                suffix = f"\\nOpenVPN log:\\n{details}" if details else ""
                 raise OpenVPNSessionError(
                     "OpenVPN exited before its local management interface became ready. "
                     "Check the OpenVPN version, adapter driver and Windows service."
+                    f"{suffix}"
                 )
             try:
                 connection = socket.create_connection(
@@ -181,10 +193,24 @@ class OpenVPNSession:
                 last_error = exc
                 time.sleep(0.15)
 
+        details = self._startup_log_excerpt()
+        suffix = f"\\nOpenVPN log:\\n{details}" if details else ""
         raise OpenVPNSessionError(
             "Timed out while opening the password-protected local OpenVPN "
-            f"management interface. Last error: {last_error}"
+            f"management interface. Last error: {last_error}{suffix}"
         )
+
+    def _startup_log_excerpt(self) -> str:
+        if self._log_path is None or not self._log_path.is_file():
+            return ""
+        try:
+            lines = self._log_path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            ).splitlines()
+        except OSError:
+            return ""
+        return "\\n".join(lines[-20:])[-6_000:]
 
     def _authenticate_management(
         self,
@@ -294,34 +320,63 @@ class OpenVPNSession:
 
     def stop(self, *, graceful_timeout: float = 15.0) -> None:
         process = self._process
+        stop_error: Exception | None = None
 
-        if process is not None and process.poll() is None:
+        try:
+            if process is not None and process.poll() is None:
+                if self._management_socket is not None:
+                    try:
+                        self._send_command("signal SIGTERM")
+                    except OSError:
+                        pass
+
+                try:
+                    process.wait(timeout=graceful_timeout)
+                except subprocess.TimeoutExpired:
+                    try:
+                        process.terminate()
+                    except OSError as exc:
+                        stop_error = exc
+
+                    try:
+                        process.wait(timeout=3.0)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            process.kill()
+                        except OSError as exc:
+                            stop_error = stop_error or exc
+                        try:
+                            process.wait(timeout=3.0)
+                        except (subprocess.TimeoutExpired, OSError) as exc:
+                            stop_error = stop_error or exc
+        finally:
             if self._management_socket is not None:
                 try:
-                    self._send_command("signal SIGTERM")
+                    self._management_socket.close()
                 except OSError:
                     pass
+                self._management_socket = None
 
-            try:
-                process.wait(timeout=graceful_timeout)
-            except subprocess.TimeoutExpired:
-                process.terminate()
+            if self._log_handle is not None:
                 try:
-                    process.wait(timeout=3.0)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=3.0)
+                    self._log_handle.close()
+                except OSError:
+                    pass
+                self._log_handle = None
 
-        if self._management_socket is not None:
-            try:
-                self._management_socket.close()
-            except OSError:
-                pass
-            self._management_socket = None
+            self._connected = False
+            self._process = None
 
-        self._connected = False
-        self._process = None
+            if self._temporary_directory is not None:
+                try:
+                    self._temporary_directory.cleanup()
+                except OSError as exc:
+                    stop_error = stop_error or exc
+                self._temporary_directory = None
 
-        if self._temporary_directory is not None:
-            self._temporary_directory.cleanup()
-            self._temporary_directory = None
+            self._log_path = None
+
+        if stop_error is not None:
+            raise OpenVPNSessionError(
+                f"OpenVPN could not be stopped cleanly: {stop_error}"
+            ) from stop_error
