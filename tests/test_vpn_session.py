@@ -97,6 +97,7 @@ def test_build_command_uses_loopback_management_and_no_shell(tmp_path):
     assert "--management-hold" in command
     assert "--management-query-passwords" in command
     assert "--management-signal" in command
+    assert command[command.index("--remap-usr1") + 1] == "SIGTERM"
     assert "--auth-nocache" in command
     assert "0.0.0.0" not in command
 
