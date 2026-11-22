@@ -75,7 +75,14 @@ def sort_servers(
                 and results[server.ip_address].reachable is not None
             )
         ]
-        unavailable = [server for server in items if server not in available]
+        unavailable = [
+            server
+            for server in items
+            if (
+                server.ip_address not in results
+                or results[server.ip_address].reachable is None
+            )
+        ]
         available.sort(
             key=lambda server: not results[server.ip_address].reachable,
             reverse=descending,
@@ -91,7 +98,14 @@ def sort_servers(
                 and results[server.ip_address].latency_ms is not None
             )
         ]
-        unavailable = [server for server in items if server not in available]
+        unavailable = [
+            server
+            for server in items
+            if (
+                server.ip_address not in results
+                or results[server.ip_address].latency_ms is None
+            )
+        ]
         available.sort(
             key=lambda server: results[server.ip_address].latency_ms,
             reverse=descending,
