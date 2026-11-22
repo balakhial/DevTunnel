@@ -19,12 +19,17 @@ src/devtunnel/
   app.py                 # PySide6 desktop UI
   core/models.py         # Provider-independent data models
   providers/base.py      # Provider interface
-  providers/vpngate.py   # VPN Gate CSV client and parser
+  providers/vpngate.py   # VPN Gate CSV client, parser and mirror fallback
 ```
 
-The first provider uses the official VPN Gate CSV endpoint:
+## VPN Gate data sources
 
-- https://www.vpngate.net/api/iphone/
+DevTunnel tries these endpoints in order:
+
+1. Official HTTPS API: https://www.vpngate.net/api/iphone/
+2. Tested mirror fallback: http://150.40.105.20:16086/api/iphone/
+
+The mirror uses plain HTTP because the tested network could reach it while the primary hostname was inaccessible. **HTTP does not authenticate or encrypt the response.** Treat all mirror-provided server metadata and especially embedded OpenVPN profiles as untrusted. This release only displays the list; it does not import or launch profiles or establish VPN connections. Do not use mirror-delivered profile data for a future connection without adding an authenticated source or a separate integrity-verification mechanism.
 
 VPN Gate is a volunteer-operated public relay network. Server availability, performance and operator practices can vary. The provider's published list is not a security audit or a guarantee of privacy.
 
@@ -32,7 +37,7 @@ VPN Gate is a volunteer-operated public relay network. Server availability, perf
 
 - Windows 10/11 (initial target)
 - Python 3.10 or newer (Python 3.14 supported by current PySide6 releases)
-- Internet access to the selected provider endpoint
+- Internet access to at least one configured provider endpoint
 
 ## Development setup
 
@@ -65,6 +70,7 @@ python -m pytest
 
 - Public VPN relays are operated by third parties. Do not assume they are suitable for sensitive accounts or confidential traffic.
 - Server metadata and downloaded VPN profiles are untrusted input.
+- The HTTP mirror is not authenticated; its contents may be modified in transit. Never treat a profile received from it as trustworthy.
 - Future connection support must validate profiles, avoid shell-string execution, use argument arrays, and clearly explain routes/DNS changes.
 - DevTunnel will not bundle unknown executables or automatically elevate privileges.
 - No credentials, personal configuration or downloaded profiles belong in Git.
