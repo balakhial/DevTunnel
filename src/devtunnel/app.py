@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from devtunnel import __version__
+from devtunnel.core.sorting import sort_servers
 from devtunnel.providers.vpngate import (
     VPN_GATE_MIRROR_API_URL,
     VpnGateError,
@@ -49,22 +50,6 @@ class ServerRefreshWorker(QThread):
             self.failed.emit(traceback.format_exc())
 
 
-class ServerTableItem(QTableWidgetItem):
-    """Sort numeric values numerically."""
-
-    def __lt__(self, other: QTableWidgetItem) -> bool:
-        left = self.data(Qt.ItemDataRole.UserRole)
-        right = other.data(Qt.ItemDataRole.UserRole)
-
-        if left is not None and right is not None:
-            try:
-                return float(left) < float(right)
-            except (TypeError, ValueError):
-                pass
-
-        return super().__lt__(other)
-
-
 class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
@@ -76,6 +61,8 @@ class MainWindow(QMainWindow):
         self._worker: ServerRefreshWorker | None = None
         self._servers: list = []
         self._source = ""
+        self._sort_column: int | None = None
+        self._sort_descending = False
 
         # --------------------------------------------------
         # Header
@@ -178,7 +165,9 @@ class MainWindow(QMainWindow):
             QHeaderView.ResizeMode.Stretch
         )
 
-        self.table.horizontalHeader().setSortIndicatorShown(True)
+        header = self.table.horizontalHeader()
+        header.setSortIndicatorShown(False)
+        header.sectionClicked.connect(self._on_header_clicked)
 
         # --------------------------------------------------
         # Main layout
@@ -422,12 +411,37 @@ class MainWindow(QMainWindow):
             )
         ]
 
+        if self._sort_column is not None:
+            filtered = sort_servers(
+                filtered,
+                column=self._sort_column,
+                descending=self._sort_descending,
+            )
+
         self._populate_table(filtered)
 
         self.result_label.setText(
             f"تعداد سرورها: {len(filtered)} "
             f"از {len(self._servers)}"
         )
+
+    def _on_header_clicked(self, column: int) -> None:
+        if column == self._sort_column:
+            self._sort_descending = not self._sort_descending
+        else:
+            self._sort_column = column
+            self._sort_descending = False
+
+        self.table.horizontalHeader().setSortIndicator(
+            column,
+            (
+                Qt.SortOrder.DescendingOrder
+                if self._sort_descending
+                else Qt.SortOrder.AscendingOrder
+            ),
+        )
+        self.table.horizontalHeader().setSortIndicatorShown(True)
+        self._apply_filters()
 
     # ======================================================
     # Populate table
