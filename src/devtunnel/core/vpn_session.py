@@ -103,12 +103,12 @@ class OpenVPNSession:
             profile_path.write_text(
                 self.profile_text,
                 encoding="utf-8",
-                newline="\\n",
+                newline="\n",
             )
             password_path.write_text(
-                self._management_password + "\\n",
+                self._management_password + "\n",
                 encoding="ascii",
-                newline="\\n",
+                newline="\n",
             )
             try:
                 os.chmod(profile_path, 0o600)
