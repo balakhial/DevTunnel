@@ -1,10 +1,10 @@
-"""VPN Gate public CSV provider with an explicitly identified mirror fallback.
+"""VPN Gate server discovery and guarded OpenVPN profile retrieval.
 
-The primary endpoint and CSV format are published by VPN Gate:
-https://www.vpngate.net/api/iphone/
-
-The fallback is the HTTP mirror tested for this installation. HTTP does not
-authenticate the response; data received from it must remain untrusted.
+Server discovery tries the official VPN Gate API and may use a clearly
+identified HTTP mirror for display-only metadata. Connection profiles are
+fetched from the official HTTPS API, with a separate SHA-256-pinned community
+HTTPS snapshot as a fallback. The unauthenticated HTTP mirror is never used
+for VPN connection profiles.
 """
 
 import base64
