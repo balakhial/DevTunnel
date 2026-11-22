@@ -17,22 +17,27 @@ from PySide6.QtWidgets import (
 )
 
 from devtunnel import __version__
-from devtunnel.providers.vpngate import VpnGateError, VpnGateProvider
+from devtunnel.providers.vpngate import (
+    VPN_GATE_MIRROR_API_URL,
+    VpnGateError,
+    VpnGateProvider,
+)
 
 
 class ServerRefreshWorker(QThread):
     """Download provider data away from the GUI thread."""
 
-    succeeded = Signal(object)
+    succeeded = Signal(object, str)
     failed = Signal(str)
 
     def run(self) -> None:
+        provider = VpnGateProvider()
         try:
-            servers = VpnGateProvider().fetch_servers()
+            servers = provider.fetch_servers()
         except VpnGateError as exc:
             self.failed.emit(str(exc))
             return
-        self.succeeded.emit(servers)
+        self.succeeded.emit(servers, provider.last_source or "")
 
 
 class MainWindow(QMainWindow):
@@ -48,6 +53,7 @@ class MainWindow(QMainWindow):
         subtitle.setObjectName("subtitle")
 
         self.status_label = QLabel("برای دریافت فهرست سرورها روی دکمه زیر کلیک کنید.")
+        self.status_label.setWordWrap(True)
         self.refresh_button = QPushButton("دریافت فهرست سرورها")
         self.refresh_button.clicked.connect(self.refresh_servers)
 
@@ -96,7 +102,7 @@ class MainWindow(QMainWindow):
         self._worker.finished.connect(lambda: self.refresh_button.setEnabled(True))
         self._worker.start()
 
-    def _show_servers(self, servers: list) -> None:
+    def _show_servers(self, servers: list, source: str) -> None:
         self.table.setRowCount(len(servers))
         for row_index, server in enumerate(servers):
             values = [
@@ -110,7 +116,16 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(values):
                 self.table.setItem(row_index, column, QTableWidgetItem(value))
 
-        self.status_label.setText(f"{len(servers)} سرور از VPN Gate دریافت شد. هنوز هیچ اتصالی برقرار نشده است.")
+        if source == VPN_GATE_MIRROR_API_URL:
+            self.status_label.setText(
+                f"{len(servers)} سرور از آینه HTTP دریافت شد. "
+                "هشدار: اطلاعات این مسیر احراز هویت نشده و برای اتصال VPN قابل اعتماد نیست."
+            )
+        else:
+            self.status_label.setText(
+                f"{len(servers)} سرور از API رسمی VPN Gate دریافت شد. "
+                "هنوز هیچ اتصالی برقرار نشده است."
+            )
 
     def _show_error(self, message: str) -> None:
         self.status_label.setText("دریافت فهرست سرورها ناموفق بود.")
