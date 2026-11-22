@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "A Windows desktop VPN discovery and connection manager for developers."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Proprietary - license to be selected" }
 authors = [{ name = "DevTunnel Contributors" }]
 dependencies = [
     "PySide6>=6.10.1,<7",
