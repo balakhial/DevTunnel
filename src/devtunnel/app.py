@@ -557,6 +557,7 @@ class MainWindow(QMainWindow):
             "پروفایل اتصال فقط از API رسمی HTTPS دریافت و پیش از اجرا بررسی "
             "می‌شود. با این حال سرور مقصد شخص ثالث است.\n\n"
             f"سرور: {server.ip_address} — {server.country}\n"
+            f"فایل اجرایی OpenVPN: {executable}\n\n"
             "اتصال برقرار شود؟",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
