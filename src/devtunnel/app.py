@@ -144,8 +144,8 @@ class OpenVPNConnectionWorker(QThread):
 
                 exit_code = process.poll()
                 if exit_code is not None:
-                    recent = "\\n".join(session.recent_logs[-8:])
-                    detail = f"\\n{recent}" if recent else ""
+                    recent = "\n".join(session.recent_logs[-8:])
+                    detail = f"\n{recent}" if recent else ""
                     raise OpenVPNSessionError(
                         f"فرایند OpenVPN با کد {exit_code} خارج شد.{detail}"
                     )
@@ -177,7 +177,7 @@ class OpenVPNConnectionWorker(QThread):
                 except Exception as exc:
                     cleanup_message = f"خطا هنگام پاک‌سازی OpenVPN: {exc}"
                     failure_message = (
-                        f"{failure_message}\\n{cleanup_message}"
+                        f"{failure_message}\n{cleanup_message}"
                         if failure_message
                         else cleanup_message
                     )
@@ -558,7 +558,7 @@ class MainWindow(QMainWindow):
                 self,
                 "OpenVPN نصب نیست",
                 "فایل اجرایی OpenVPN پیدا نشد. ابتدا OpenVPN Community را "
-                "از نشانی رسمی زیر نصب کن؛ DevTunnel چیزی را خودکار نصب نمی‌کند.\\n\\n"
+                "از نشانی رسمی زیر نصب کن؛ DevTunnel چیزی را خودکار نصب نمی‌کند.\n\n"
                 "https://openvpn.net/community-downloads/",
             )
             return
