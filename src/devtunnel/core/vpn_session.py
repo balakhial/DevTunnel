@@ -76,6 +76,8 @@ class OpenVPNSession:
             "--management-query-passwords",
             "--management-forget-disconnect",
             "--management-signal",
+            "--remap-usr1",
+            "SIGTERM",
             "--management-log-cache",
             "100",
             "--auth-nocache",
