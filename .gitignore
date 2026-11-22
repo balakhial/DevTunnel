@@ -30,6 +30,7 @@ htmlcov/
 data/
 profiles/
 logs/
+*.log
 *.ovpn
 *.conf
 *.pem
