@@ -1,8 +1,9 @@
 """Stable, provider-independent sorting for VPN server rows."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import ipaddress
 
+from devtunnel.core.diagnostics import ReachabilityResult
 from devtunnel.core.models import VpnServer
 
 
@@ -10,13 +11,16 @@ def sort_servers(
     servers: Iterable[VpnServer],
     column: int,
     descending: bool = False,
+    reachability: Mapping[str, ReachabilityResult] | None = None,
 ) -> list[VpnServer]:
-    """Sort servers using the table column semantics.
+    """Sort servers according to the eight visible table columns.
 
-    Columns: country, IP address, ping, speed, sessions, OpenVPN support.
-    Servers without a ping are always kept at the end.
+    Columns: country, IP address, provider ping, speed, sessions, OpenVPN,
+    reachability and locally measured ICMP latency. Missing measurements
+    always remain at the end, regardless of sort direction.
     """
     items = list(servers)
+    results = reachability or {}
 
     if column == 0:
         return sorted(
@@ -61,5 +65,37 @@ def sort_servers(
             key=lambda server: server.supports_openvpn,
             reverse=descending,
         )
+
+    if column == 6:
+        available = [
+            server
+            for server in items
+            if (
+                server.ip_address in results
+                and results[server.ip_address].reachable is not None
+            )
+        ]
+        unavailable = [server for server in items if server not in available]
+        available.sort(
+            key=lambda server: not results[server.ip_address].reachable,
+            reverse=descending,
+        )
+        return available + unavailable
+
+    if column == 7:
+        available = [
+            server
+            for server in items
+            if (
+                server.ip_address in results
+                and results[server.ip_address].latency_ms is not None
+            )
+        ]
+        unavailable = [server for server in items if server not in available]
+        available.sort(
+            key=lambda server: results[server.ip_address].latency_ms,
+            reverse=descending,
+        )
+        return available + unavailable
 
     raise ValueError(f"Unsupported server table column: {column}")
