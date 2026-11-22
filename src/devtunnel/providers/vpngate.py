@@ -13,6 +13,7 @@ import csv
 import io
 import ipaddress
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from devtunnel.core.models import VpnServer
@@ -159,6 +160,15 @@ class VpnGateProvider:
         )
         try:
             with urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+                final_url = urlsplit(response.geturl())
+                if (
+                    final_url.scheme.lower() != "https"
+                    or final_url.hostname not in {"www.vpngate.net", "vpngate.net"}
+                ):
+                    raise VpnGateError(
+                        "The official API redirected to an untrusted URL; "
+                        "the profile will not be used."
+                    )
                 payload_bytes = response.read(_MAX_RESPONSE_BYTES + 1)
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
             raise VpnGateError(
