@@ -3,7 +3,6 @@
 from pathlib import Path
 import socket
 import subprocess
-import threading
 
 import pytest
 
@@ -28,10 +27,10 @@ ZmFrZQ==
 
 
 class FakeProcess:
-    def __init__(self, *_args, **_kwargs):
+    def __init__(self, command, **kwargs):
         self.returncode = None
-        self.args = _args[0]
-        self.kwargs = _kwargs
+        self.command = command
+        self.kwargs = kwargs
         self.terminated = False
         self.killed = False
 
@@ -90,7 +89,8 @@ def test_build_command_uses_loopback_management_and_no_shell(tmp_path):
     )
 
     assert command[0] == "openvpn.exe"
-    assert command[command.index("--management") + 1:command.index("--management") + 3] == [
+    management_index = command.index("--management")
+    assert command[management_index + 1:management_index + 3] == [
         "127.0.0.1",
         "43210",
     ]
@@ -101,37 +101,75 @@ def test_build_command_uses_loopback_management_and_no_shell(tmp_path):
     assert "0.0.0.0" not in command
 
 
-def test_authenticate_management_sends_random_password():
-    server, client = socket.socketpair()
-    server.settimeout(1.0)
-    client.settimeout(1.0)
-    session = OpenVPNSession("openvpn.exe", VALID_PROFILE, "8.8.8.8")
-    session._management_socket = client
-
-    def fake_openvpn():
-        server.sendall(b"ENTER PASSWORD:")
-        received = server.recv(1024)
-        assert received == b"secret-management-password\n"
-        server.sendall(b"SUCCESS: password is correct\r\n")
-
-    thread = threading.Thread(target=fake_openvpn)
-    thread.start()
-    session._authenticate_management(
-        "secret-management-password",
-        timeout=2.0,
+def test_start_uses_authenticated_loopback_and_cleans_temporary_files(
+    monkeypatch,
+):
+    fake_socket = FakeManagementSocket(
+        [
+            b"ENTER PASSWORD:",
+            b"SUCCESS: password is correct\r\n",
+        ]
     )
-    thread.join(timeout=2.0)
+    fake_processes = []
 
-    assert not thread.is_alive()
-    server.close()
-    client.close()
+    def fake_popen(command, **kwargs):
+        process = FakeProcess(command, **kwargs)
+        fake_processes.append(process)
+        return process
+
+    monkeypatch.setattr(
+        "devtunnel.core.vpn_session.socket.create_connection",
+        lambda *_args, **_kwargs: fake_socket,
+    )
+
+    session = OpenVPNSession(
+        "openvpn.exe",
+        VALID_PROFILE,
+        "8.8.8.8",
+        popen_factory=fake_popen,
+    )
+
+    session.start()
+
+    assert len(fake_processes) == 1
+    process = fake_processes[0]
+    assert process.kwargs["shell"] is False
+    assert process.kwargs["stdin"] == subprocess.DEVNULL
+    assert process.kwargs["stdout"] == subprocess.DEVNULL
+
+    command = process.command
+    assert command[command.index("--management") + 1] == "127.0.0.1"
+    assert b"ENTER PASSWORD:" not in b"".join(fake_socket.sent)
+    assert len(fake_socket.sent) == 5
+    assert fake_socket.sent[0].endswith(b"\n")
+    assert fake_socket.sent[1:] == [
+        b"version 3\n",
+        b"state on\n",
+        b"log on all\n",
+        b"hold release\n",
+    ]
+
+    profile_path = Path(command[command.index("--config") + 1])
+    password_path = Path(command[command.index("--management") + 3])
+    temp_directory = profile_path.parent
+
+    assert profile_path.exists()
+    assert password_path.exists()
+    assert "remote 8.8.8.8 443" in profile_path.read_text(encoding="utf-8")
+    assert password_path.read_text(encoding="ascii").strip()
+
+    session.stop()
+
+    assert fake_socket.sent[-1] == b"signal SIGTERM\n"
+    assert fake_socket.closed
+    assert process.returncode == 0
+    assert not temp_directory.exists()
+    assert session.process is None
 
 
 def test_auth_prompt_is_answered_with_vpngate_public_credentials():
     fake_socket = FakeManagementSocket(
-        [
-            b">PASSWORD:Need 'Auth' username/password\r\n",
-        ]
+        [b">PASSWORD:Need 'Auth' username/password\r\n"]
     )
     session = OpenVPNSession("openvpn.exe", VALID_PROFILE, "8.8.8.8")
     session._management_socket = fake_socket
@@ -147,9 +185,7 @@ def test_auth_prompt_is_answered_with_vpngate_public_credentials():
 
 def test_password_static_challenge_is_not_automatically_answered():
     fake_socket = FakeManagementSocket(
-        [
-            b">PASSWORD:Need 'Auth' username/password SC:1,Enter token\r\n",
-        ]
+        [b">PASSWORD:Need 'Auth' username/password SC:1,Enter token\r\n"]
     )
     session = OpenVPNSession("openvpn.exe", VALID_PROFILE, "8.8.8.8")
     session._management_socket = fake_socket
@@ -162,9 +198,7 @@ def test_password_static_challenge_is_not_automatically_answered():
 
 def test_connected_state_is_detected():
     fake_socket = FakeManagementSocket(
-        [
-            b">STATE:1790000000,CONNECTED,SUCCESS,10.8.0.2,8.8.8.8,443\r\n",
-        ]
+        [b">STATE:1790000000,CONNECTED,SUCCESS,10.8.0.2,8.8.8.8,443\r\n"]
     )
     session = OpenVPNSession("openvpn.exe", VALID_PROFILE, "8.8.8.8")
     session._management_socket = fake_socket
@@ -172,45 +206,6 @@ def test_connected_state_is_detected():
     session.poll_messages(timeout=0.1)
 
     assert session.connected is True
-
-
-def test_stop_sends_graceful_signal_and_cleans_temporary_files(monkeypatch):
-    fake_process = FakeProcess()
-    fake_socket = FakeManagementSocket()
-    captured = {}
-
-    def fake_popen(command, **kwargs):
-        captured["command"] = command
-        captured["kwargs"] = kwargs
-        return fake_process
-
-    session = OpenVPNSession(
-        "openvpn.exe",
-        VALID_PROFILE,
-        "8.8.8.8",
-        popen_factory=fake_popen,
-    )
-    session._process = fake_process
-    session._management_socket = fake_socket
-
-    temp_dir = Path(__import__("tempfile").mkdtemp(prefix="devtunnel-test-"))
-    session._temporary_directory = type(
-        "TempDir",
-        (),
-        {
-            "cleanup": lambda self: __import__("shutil").rmtree(temp_dir),
-        },
-    )()
-    profile_path = temp_dir / "selected.ovpn"
-    profile_path.write_text(VALID_PROFILE, encoding="utf-8")
-
-    session.stop()
-
-    assert fake_socket.sent == [b"signal SIGTERM\n"]
-    assert fake_socket.closed
-    assert fake_process.returncode == 0
-    assert not temp_dir.exists()
-    assert session.process is None
 
 
 def test_rejects_invalid_profile_before_creating_a_process():
