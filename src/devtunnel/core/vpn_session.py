@@ -176,7 +176,7 @@ class OpenVPNSession:
         while time.monotonic() < deadline:
             if self._process is not None and self._process.poll() is not None:
                 details = self._startup_log_excerpt()
-                suffix = f"\\nOpenVPN log:\\n{details}" if details else ""
+                suffix = f"\nOpenVPN log:\n{details}" if details else ""
                 raise OpenVPNSessionError(
                     "OpenVPN exited before its local management interface became ready. "
                     "Check the OpenVPN version, adapter driver and Windows service."
@@ -194,7 +194,7 @@ class OpenVPNSession:
                 time.sleep(0.15)
 
         details = self._startup_log_excerpt()
-        suffix = f"\\nOpenVPN log:\\n{details}" if details else ""
+        suffix = f"\nOpenVPN log:\n{details}" if details else ""
         raise OpenVPNSessionError(
             "Timed out while opening the password-protected local OpenVPN "
             f"management interface. Last error: {last_error}{suffix}"
@@ -210,7 +210,7 @@ class OpenVPNSession:
             ).splitlines()
         except OSError:
             return ""
-        return "\\n".join(lines[-20:])[-6_000:]
+        return "\n".join(lines[-20:])[-6_000:]
 
     def _authenticate_management(
         self,
