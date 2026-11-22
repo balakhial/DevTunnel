@@ -2,6 +2,8 @@
 
 import csv
 
+import pytest
+
 from devtunnel.core.diagnostics import ReachabilityResult
 from devtunnel.core.export import export_servers_to_csv
 from devtunnel.core.models import VpnServer
@@ -55,17 +57,27 @@ def test_export_writes_utf8_csv_without_exporting_profiles(tmp_path):
     assert rows[1][3] == "12.50"
 
 
-def test_export_escapes_spreadsheet_formula_prefixes(tmp_path):
+@pytest.mark.parametrize(
+    "country",
+    [
+        '=HYPERLINK("https://bad.example")',
+        '   =HYPERLINK("https://bad.example")',
+        "+SUM(1,1)",
+        "@malicious",
+    ],
+)
+def test_export_escapes_spreadsheet_formula_prefixes(tmp_path, country):
     destination = tmp_path / "servers.csv"
 
     export_servers_to_csv(
-        [make_server(country="=HYPERLINK(\"https://bad.example\")")]
-    , destination)
+        [make_server(country=country)],
+        destination,
+    )
 
     with destination.open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.reader(handle))
 
-    assert rows[1][0].startswith("'=")
+    assert rows[1][0].startswith("'")
 
 
 def test_export_supports_empty_lists(tmp_path):
@@ -82,9 +94,5 @@ def test_export_supports_empty_lists(tmp_path):
 def test_export_fails_when_parent_directory_is_missing(tmp_path):
     missing_destination = tmp_path / "missing" / "servers.csv"
 
-    try:
+    with pytest.raises(FileNotFoundError):
         export_servers_to_csv([], missing_destination)
-    except FileNotFoundError:
-        pass
-    else:
-        raise AssertionError("Expected a missing parent directory to fail")
