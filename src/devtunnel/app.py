@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -29,6 +30,7 @@ from devtunnel.core.diagnostics import (
     ReachabilityResult,
     check_servers_reachability,
 )
+from devtunnel.core.export import export_servers_to_csv
 from devtunnel.core.sorting import sort_servers
 from devtunnel.providers.vpngate import (
     VPN_GATE_MIRROR_API_URL,
@@ -91,6 +93,7 @@ class MainWindow(QMainWindow):
         self._worker: ServerRefreshWorker | None = None
         self._check_worker: ServerCheckWorker | None = None
         self._servers: list = []
+        self._visible_servers: list = []
         self._source = ""
         self._reachability: dict[str, ReachabilityResult] = {}
         self._sort_column: int | None = None
@@ -140,9 +143,14 @@ class MainWindow(QMainWindow):
             self.check_servers
         )
 
+        self.export_button = QPushButton("خروجی CSV")
+        self.export_button.setEnabled(False)
+        self.export_button.clicked.connect(self.export_current_servers)
+
         action_layout = QHBoxLayout()
         action_layout.addWidget(self.refresh_button)
         action_layout.addWidget(self.check_button)
+        action_layout.addWidget(self.export_button)
         action_layout.addStretch()
 
         # --------------------------------------------------
@@ -368,6 +376,9 @@ class MainWindow(QMainWindow):
         self.check_button.setEnabled(
             not busy and bool(self._servers)
         )
+        self.export_button.setEnabled(
+            not busy and bool(self._visible_servers)
+        )
 
     def check_servers(self) -> None:
         if self._is_busy() or not self._servers:
@@ -541,10 +552,47 @@ class MainWindow(QMainWindow):
 
         self._populate_table(filtered)
 
+        self._visible_servers = list(filtered)
+        self.export_button.setEnabled(
+            not self._is_busy() and bool(self._visible_servers)
+        )
         self.result_label.setText(
             f"تعداد سرورها: {len(filtered)} "
             f"از {len(self._servers)}"
         )
+
+    def export_current_servers(self) -> None:
+        if not self._visible_servers:
+            return
+
+        destination, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "ذخیره فهرست سرورها",
+            "devtunnel-servers.csv",
+            "CSV Files (*.csv)",
+        )
+        if not destination:
+            return
+
+        if not destination.lower().endswith(".csv"):
+            destination += ".csv"
+
+        try:
+            count = export_servers_to_csv(
+                self._visible_servers,
+                destination,
+                reachability=self._reachability,
+            )
+            self.status_label.setText(
+                f"خروجی CSV با {count} سرور ذخیره شد: {destination}"
+            )
+        except Exception:
+            error = traceback.format_exc()
+            QMessageBox.critical(
+                self,
+                "خطا در ذخیره خروجی",
+                error,
+            )
 
     def _on_header_clicked(self, column: int) -> None:
         if column == self._sort_column:
