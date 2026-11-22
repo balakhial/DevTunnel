@@ -116,8 +116,14 @@ class OpenVPNConnectionWorker(QThread):
             self.state_changed.emit(
                 "در حال دریافت پروفایل تازه از API رسمی و امن VPN Gate…"
             )
-            profile = VpnGateProvider().fetch_server_profile(
+            provider = VpnGateProvider()
+            profile = provider.fetch_server_profile(
                 self._server.ip_address
+            )
+            source_label = provider.last_profile_source or "منبع نامشخص"
+            self.state_changed.emit(
+                f"پروفایل اتصال از {source_label} دریافت و بررسی شد؛ "
+                "در حال آماده‌سازی OpenVPN…"
             )
             if self._stop_requested.is_set():
                 return
@@ -570,8 +576,11 @@ class MainWindow(QMainWindow):
             "مسیر پیش‌فرض اینترنت و DNS ویندوز از طریق اپراتور این سرور "
             "عبور کند. اپراتور رله می‌تواند ترافیک رمزنگاری‌نشده را ببیند؛ "
             "برای حساب‌های حساس یا اطلاعات محرمانه از رله عمومی استفاده نکن.\n\n"
-            "پروفایل اتصال فقط از API رسمی HTTPS دریافت و پیش از اجرا بررسی "
-            "می‌شود. با این حال سرور مقصد شخص ثالث است.\n\n"
+            "DevTunnel ابتدا API رسمی HTTPS را امتحان می‌کند. اگر دسترسی به آن "
+            "ممکن نباشد، ممکن است از snapshot جامعه‌محور HTTPS استفاده کند؛ "
+            "این منبع رسمی VPN Gate نیست. فایل‌ها با SHA-256 و شناسه commit "
+            "بررسی می‌شوند، اما این هش‌ها هویت ناشر را تضمین نمی‌کنند. "
+            "پروفایل نیز پیش از اجرا با قواعد محدود اعتبارسنجی می‌شود.\n\n"
             f"سرور: {server.ip_address} — {server.country}\n"
             f"فایل اجرایی OpenVPN: {executable}\n"
             "پیش از ادامه، مطمئن شو این مسیر متعلق به نصب رسمی OpenVPN است.\n"
