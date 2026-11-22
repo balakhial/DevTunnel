@@ -110,6 +110,8 @@ class OpenVPNConnectionWorker(QThread):
 
     def run(self) -> None:
         session: OpenVPNSession | None = None
+        failure_message: str | None = None
+
         try:
             self.state_changed.emit(
                 "در حال دریافت پروفایل تازه از API رسمی و امن VPN Gate…"
@@ -142,8 +144,8 @@ class OpenVPNConnectionWorker(QThread):
 
                 exit_code = process.poll()
                 if exit_code is not None:
-                    recent = "\n".join(session.recent_logs[-8:])
-                    detail = f"\n{recent}" if recent else ""
+                    recent = "\\n".join(session.recent_logs[-8:])
+                    detail = f"\\n{recent}" if recent else ""
                     raise OpenVPNSessionError(
                         f"فرایند OpenVPN با کد {exit_code} خارج شد.{detail}"
                     )
@@ -167,15 +169,22 @@ class OpenVPNConnectionWorker(QThread):
 
         except Exception as exc:
             if not self._stop_requested.is_set():
-                self.failed.emit(str(exc))
+                failure_message = str(exc)
         finally:
             if session is not None:
                 try:
                     session.stop()
                 except Exception as exc:
-                    self.failed.emit(
-                        f"OpenVPN cleanup failed: {exc}"
+                    cleanup_message = f"خطا هنگام پاک‌سازی OpenVPN: {exc}"
+                    failure_message = (
+                        f"{failure_message}\\n{cleanup_message}"
+                        if failure_message
+                        else cleanup_message
                     )
+
+            if failure_message:
+                self.failed.emit(failure_message)
+
 
 
 class MainWindow(QMainWindow):
