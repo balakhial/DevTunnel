@@ -33,6 +33,7 @@ from devtunnel.core.diagnostics import (
     check_servers_reachability,
 )
 from devtunnel.core.export import export_servers_to_csv
+from devtunnel.core.models import VpnServer
 from devtunnel.core.openvpn import locate_openvpn_executable
 from devtunnel.core.sorting import sort_servers
 from devtunnel.core.vpn_session import OpenVPNSession, OpenVPNSessionError
@@ -183,6 +184,8 @@ class MainWindow(QMainWindow):
         self._worker: ServerRefreshWorker | None = None
         self._check_worker: ServerCheckWorker | None = None
         self._connection_worker: OpenVPNConnectionWorker | None = None
+        self._connection_error: str | None = None
+        self._disconnect_requested = False
         self._servers: list = []
         self._visible_servers: list = []
         self._source = ""
@@ -561,6 +564,8 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
+        self._connection_error = None
+        self._disconnect_requested = False
         self._connection_worker = OpenVPNConnectionWorker(
             executable,
             server,
@@ -584,6 +589,8 @@ class MainWindow(QMainWindow):
 
         self._set_busy(True)
         self.disconnect_button.setEnabled(True)
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setVisible(True)
         self.status_label.setText(
             f"در حال آماده‌سازی اتصال به {server.ip_address}…"
         )
@@ -594,6 +601,7 @@ class MainWindow(QMainWindow):
         if worker is None or not worker.isRunning():
             return
 
+        self._disconnect_requested = True
         self.disconnect_button.setEnabled(False)
         self.status_label.setText(
             "در حال ارسال فرمان قطع امن به OpenVPN…"
@@ -624,6 +632,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_connection_failed(self, error: str) -> None:
+        self._connection_error = error
         self.status_label.setText("اتصال VPN برقرار نشد.")
         QMessageBox.critical(
             self,
@@ -635,10 +644,17 @@ class MainWindow(QMainWindow):
         self._connection_worker = None
         self.disconnect_button.setEnabled(False)
         self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 0)
         self._set_busy(False)
-        self.status_label.setText(
-            "نشست OpenVPN پایان یافت و فرایند اتصال بسته شد."
-        )
+
+        if self._connection_error:
+            self.status_label.setText("اتصال VPN برقرار نشد.")
+        elif self._disconnect_requested:
+            self.status_label.setText("اتصال VPN به‌طور امن قطع شد.")
+        else:
+            self.status_label.setText("فرایند OpenVPN پایان یافت.")
+
+        self._disconnect_requested = False
 
     def check_openvpn_installation(self) -> None:
         if self._is_busy():
