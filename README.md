@@ -41,6 +41,10 @@ The desktop app can send one ICMP echo request to each discovered relay to provi
 
 ICMP is commonly filtered or rate-limited by networks and relay operators. A missing reply does not prove that an OpenVPN service is offline, and an ICMP reply does not prove that a VPN tunnel can be established. The locally measured latency is separate from the provider-reported Ping value. No VPN profile is downloaded, launched or trusted by this diagnostic feature.
 
+## CSV export
+
+The desktop app can export the currently filtered and sorted server rows, including provider metrics and local reachability results, to a UTF-8 CSV file suitable for spreadsheet applications. Export is atomic, excludes OpenVPN profile/certificate material, and escapes untrusted text that could otherwise be interpreted as a spreadsheet formula.
+
 ## Requirements
 
 - Windows 10/11 (initial target)
@@ -69,11 +73,12 @@ python -m pytest
 
 1. Project foundation, VPN Gate discovery, server list UI, filters and semantic sorting. (implemented)
 2. Bounded ICMP reachability diagnostics and local latency display. (implemented; ICMP limitations apply)
-3. OpenVPN profile acquisition and validation from authenticated/trustworthy sources.
-4. OpenVPN integration with explicit user consent, executable discovery and safe process management.
-5. Connection status, IP verification and disconnect/recovery flows.
-6. Developer proxy profiles for Android Studio / Gradle / Git.
-7. Packaging, installer, signing and release automation.
+3. Filtered CSV export of server metadata and diagnostics. (implemented)
+4. OpenVPN profile acquisition and validation from authenticated/trustworthy sources.
+5. OpenVPN integration with explicit user consent, executable discovery and safe process management.
+6. Connection status, IP verification and disconnect/recovery flows.
+7. Developer proxy profiles for Android Studio / Gradle / Git.
+8. Packaging, installer, signing and release automation.
 
 ## Security notes
 
