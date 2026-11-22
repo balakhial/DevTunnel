@@ -135,7 +135,8 @@ def test_start_uses_authenticated_loopback_and_cleans_temporary_files(
     process = fake_processes[0]
     assert process.kwargs["shell"] is False
     assert process.kwargs["stdin"] == subprocess.DEVNULL
-    assert process.kwargs["stdout"] == subprocess.DEVNULL
+    assert process.kwargs["stdout"] is not subprocess.DEVNULL
+    assert process.kwargs["stderr"] == subprocess.STDOUT
 
     command = process.command
     assert command[command.index("--management") + 1] == "127.0.0.1"
@@ -153,8 +154,10 @@ def test_start_uses_authenticated_loopback_and_cleans_temporary_files(
     password_path = Path(command[command.index("--management") + 3])
     temp_directory = profile_path.parent
 
+    log_path = temp_directory / "openvpn.log"
     assert profile_path.exists()
     assert password_path.exists()
+    assert log_path.exists()
     assert "remote 8.8.8.8 443" in profile_path.read_text(encoding="utf-8")
     assert password_path.read_text(encoding="ascii").strip()
 
