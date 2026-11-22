@@ -94,37 +94,37 @@ class OpenVPNSession:
         self._temporary_directory = tempfile.TemporaryDirectory(
             prefix="devtunnel-openvpn-"
         )
-        work_dir = Path(self._temporary_directory.name)
-        profile_path = work_dir / "selected-server.ovpn"
-        password_path = work_dir / "management.pass"
-
-        profile_path.write_text(
-            self.profile_text,
-            encoding="utf-8",
-            newline="\n",
-        )
-        password_path.write_text(
-            self._management_password + "\n",
-            encoding="ascii",
-            newline="\n",
-        )
-        try:
-            os.chmod(profile_path, 0o600)
-            os.chmod(password_path, 0o600)
-        except OSError:
-            # On Windows, inherited permissions on the per-user temp directory
-            # provide the access boundary; chmod is best-effort there.
-            pass
-
-        log_path = work_dir / "openvpn.log"
-        port = self._free_loopback_port()
-        command = self._build_command(profile_path, password_path, port)
-
-        creationflags = 0
-        if os.name == "nt":
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
         try:
+            work_dir = Path(self._temporary_directory.name)
+            profile_path = work_dir / "selected-server.ovpn"
+            password_path = work_dir / "management.pass"
+
+            profile_path.write_text(
+                self.profile_text,
+                encoding="utf-8",
+                newline="\\n",
+            )
+            password_path.write_text(
+                self._management_password + "\\n",
+                encoding="ascii",
+                newline="\\n",
+            )
+            try:
+                os.chmod(profile_path, 0o600)
+                os.chmod(password_path, 0o600)
+            except OSError:
+                # On Windows, inherited permissions on the per-user temp directory
+                # provide the access boundary; chmod is best-effort there.
+                pass
+
+            port = self._free_loopback_port()
+            command = self._build_command(profile_path, password_path, port)
+
+            creationflags = 0
+            if os.name == "nt":
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
             self._process = self._popen_factory(
                 command,
                 cwd=str(work_dir),
