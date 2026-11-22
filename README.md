@@ -37,7 +37,7 @@ VPN Gate is a volunteer-operated public relay network. Server availability, perf
 
 ## Relay reachability checks
 
-The desktop app can send one ICMP echo request to each discovered relay to provide a quick reachability indication. Checks run outside the GUI thread with at most 12 concurrent probes and a 1.2-second ping timeout. Duplicate addresses are checked once. Only globally routable IP addresses are probed; private, loopback, link-local, reserved and malformed addresses are skipped.
+The desktop app can send one ICMP echo request to each discovered relay to provide a quick reachability indication. Checks run outside the GUI thread with at most 12 concurrent probes, a 1.2-second ping timeout and a 500-unique-address per-run cap. Duplicate addresses are checked once. Only globally routable IP addresses are probed; private, loopback, link-local, reserved and malformed addresses are skipped.
 
 ICMP is commonly filtered or rate-limited by networks and relay operators. A missing reply does not prove that an OpenVPN service is offline, and an ICMP reply does not prove that a VPN tunnel can be established. The locally measured latency is separate from the provider-reported Ping value. No VPN profile is downloaded, launched or trusted by this diagnostic feature.
 
