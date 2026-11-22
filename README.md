@@ -41,6 +41,7 @@ The desktop app can send one ICMP echo request to each discovered relay to provi
 
 ICMP is commonly filtered or rate-limited by networks and relay operators. A missing reply does not prove that an OpenVPN service is offline, and an ICMP reply does not prove that a VPN tunnel can be established. The locally measured latency is separate from the provider-reported Ping value. No VPN profile is downloaded, launched or trusted by this diagnostic feature.
 
+## Requirements
 
 - Windows 10/11 (initial target)
 - Python 3.10 or newer (Python 3.14 supported by current PySide6 releases)
