@@ -461,7 +461,6 @@ class MainWindow(QMainWindow):
         self._servers = list(servers)
         self._source = source
         self._reachability.clear()
-        self._set_busy(False)
 
         current_country = self.country_filter.currentText()
 
@@ -618,11 +617,11 @@ class MainWindow(QMainWindow):
 
     def _show_error(self, error: str) -> None:
         self.status_label.setText(
-            "خطا در دریافت فهرست سرورها."
+            "اجرای عملیات با خطا روبه‌رو شد."
         )
         QMessageBox.critical(
             self,
-            "خطا در دریافت سرورها",
+            "خطای عملیات DevTunnel",
             error,
         )
 
