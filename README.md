@@ -2,7 +2,7 @@
 
 **DevTunnel** is a Windows-first desktop application for discovering and evaluating public VPN relay servers, with a developer-focused workflow for tools such as Android Studio, Gradle and Git.
 
-> **Current status: discovery and diagnostics foundation.** DevTunnel retrieves and displays the public VPN Gate server list, filters and sorts relays, and can run bounded ICMP reachability checks. It does not establish VPN tunnels yet.
+> **Current status: discovery, diagnostics and experimental OpenVPN connection.** DevTunnel retrieves and displays VPN Gate relays, filters and sorts them, measures ICMP reachability, exports CSV, and includes an explicit connect/disconnect flow. Real tunnel operation still requires local Windows and network verification.
 
 ## Goals
 
@@ -22,6 +22,8 @@ src/devtunnel/
   core/diagnostics.py    # Safe, bounded ICMP reachability checks
   core/export.py         # Atomic, spreadsheet-safe CSV export
   core/openvpn.py        # Read-only local OpenVPN CLI discovery
+  core/profiles.py       # Strict VPN Gate profile validation
+  core/vpn_session.py   # Managed OpenVPN process and loopback control
   providers/base.py      # Provider interface
   providers/vpngate.py   # VPN Gate CSV client, parser and mirror fallback
 ```
@@ -33,7 +35,7 @@ DevTunnel tries these endpoints in order:
 1. Official HTTPS API: https://www.vpngate.net/api/iphone/
 2. Tested mirror fallback: http://150.40.105.20:16086/api/iphone/
 
-The mirror uses plain HTTP because the tested network could reach it while the primary hostname was inaccessible. **HTTP does not authenticate or encrypt the response.** Treat all mirror-provided server metadata and especially embedded OpenVPN profiles as untrusted. This release only displays the list; it does not import or launch profiles or establish VPN connections. Do not use mirror-delivered profile data for a future connection without adding an authenticated source or a separate integrity-verification mechanism.
+The mirror uses plain HTTP because the tested network could reach it while the primary hostname was inaccessible. **HTTP does not authenticate or encrypt the response.** Treat all mirror-provided server metadata and especially embedded OpenVPN profiles as untrusted. The mirror is used only to populate the discovery list. A connection attempt fetches the selected server profile again from the official HTTPS API and refuses HTTP fallback, HTTPS downgrade, or redirects to an untrusted host.
 
 VPN Gate is a volunteer-operated public relay network. Server availability, performance and operator practices can vary. The provider's published list is not a security audit or a guarantee of privacy.
 
@@ -47,6 +49,17 @@ ICMP is commonly filtered or rate-limited by networks and relay operators. A mis
 
 The desktop app can export the currently filtered and sorted server rows, including provider metrics and local reachability results, to a UTF-8 CSV file suitable for spreadsheet applications. Export is atomic, excludes OpenVPN profile/certificate material, and escapes untrusted text that could otherwise be interpreted as a spreadsheet formula.
 
+## Experimental OpenVPN connection
+
+Select a row that advertises OpenVPN support and use the Connect button. DevTunnel fetches that server's profile again through the official VPN Gate HTTPS API. The selected IP must still appear in the fresh server list, the profile must decode correctly, and its directives must pass a strict allowlist validator. Profiles that use external files, scripts, plugins, nested configuration, custom management directives, or a remote address different from the selected server are rejected.
+
+The OpenVPN process is launched with an argument array and shell=False. The profile and a randomly generated management password are written to a temporary directory and removed when the session ends. The process is controlled through a password-protected management socket bound only to 127.0.0.1. VPN Gate's documented public credentials (username vpn, password vpn) are sent only when the relay explicitly requests them. Interactive token challenges and private-key passphrases are not automated.
+
+Every connection requires an explicit in-app confirmation. Public relays are operated by volunteers. A connection may change Windows routes and DNS and may send all Internet traffic through that relay. The relay operator may observe traffic that is not protected by end-to-end encryption. Do not use public relays for sensitive accounts or confidential traffic. Use the in-app Disconnect action for a graceful stop.
+
+DevTunnel does not automatically elevate privileges or install network drivers. Depending on the OpenVPN version and Windows driver/service setup, a connection may require the OpenVPN Interactive Service or manually starting DevTunnel with the required privileges. The implementation is experimental and has not yet been exercised on the user's Windows machine.
+
+Connection setup also requires the official https://www.vpngate.net/api/iphone/ endpoint to be reachable at connection time. If that endpoint is blocked, DevTunnel deliberately refuses to use the unauthenticated HTTP mirror for a tunnel profile.
 ## Local OpenVPN prerequisite check
 
 DevTunnel can look for the OpenVPN command-line executable on `PATH` and in standard Windows OpenVPN Community Edition installation directories. This is a read-only filesystem check: it does not install, launch, elevate or configure OpenVPN. Finding the executable is only a prerequisite check, not a VPN connection test.
@@ -81,18 +94,20 @@ python -m pytest
 2. Bounded ICMP reachability diagnostics and local latency display. (implemented; ICMP limitations apply)
 3. Filtered CSV export of server metadata and diagnostics. (implemented)
 4. Read-only OpenVPN CLI discovery. (implemented)
-5. OpenVPN profile acquisition and validation from authenticated/trustworthy sources.
-6. OpenVPN integration with explicit user consent and safe process management.
-7. Connection status, IP verification and disconnect/recovery flows.
+5. Fresh OpenVPN profile acquisition from official HTTPS and strict validation. (implemented)
+6. Experimental OpenVPN connection, state tracking and graceful disconnect. (implemented; pending local Windows verification)
+7. External IP verification and disconnect/recovery hardening.
 8. Developer proxy profiles for Android Studio / Gradle / Git.
 9. Packaging, installer, signing and release automation.
 
 ## Security notes
 
 - Public VPN relays are operated by third parties. Do not assume they are suitable for sensitive accounts or confidential traffic.
-- Server metadata and downloaded VPN profiles are untrusted input.
-- The HTTP mirror is not authenticated; its contents may be modified in transit. Never treat a profile received from it as trustworthy.
-- Future connection support must validate profiles, avoid shell-string execution, use argument arrays, and clearly explain routes/DNS changes.
+- Server metadata and downloaded VPN profiles are untrusted input; only profiles freshly re-fetched over the official HTTPS API are considered for connection.
+- The HTTP mirror is not authenticated; its contents may be modified in transit. Mirror profiles are never launched.
+- Connection profiles are allowlist-validated; external scripts, plugins and file references are rejected, and the configured remote IP must match the selected server.
+- OpenVPN is started without shell interpretation and controlled through a random-password-protected loopback management socket.
+- The app warns that routes and DNS may change; it does not automatically elevate privileges or install network drivers.
 - DevTunnel will not bundle unknown executables or automatically elevate privileges.
 - No credentials, personal configuration or downloaded profiles belong in Git.
 
