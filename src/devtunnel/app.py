@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from devtunnel import __version__
 from devtunnel.core.diagnostics import (
+    DEFAULT_MAX_WORKERS,
     DEFAULT_TIMEOUT_MS,
     ReachabilityResult,
     check_servers_reachability,
@@ -378,7 +379,8 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(True)
         self.status_label.setText(
             "در حال بررسی دسترس‌پذیری سرورها با حداکثر "
-            f"۱۲ درخواست هم‌زمان و مهلت {DEFAULT_TIMEOUT_MS} میلی‌ثانیه…"
+            f"{DEFAULT_MAX_WORKERS} درخواست هم‌زمان و مهلت "
+            f"{DEFAULT_TIMEOUT_MS} میلی‌ثانیه…"
         )
 
         self._check_worker = ServerCheckWorker(self._servers, self)
