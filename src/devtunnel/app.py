@@ -170,7 +170,12 @@ class OpenVPNConnectionWorker(QThread):
                 self.failed.emit(str(exc))
         finally:
             if session is not None:
-                session.stop()
+                try:
+                    session.stop()
+                except Exception as exc:
+                    self.failed.emit(
+                        f"OpenVPN cleanup failed: {exc}"
+                    )
 
 
 class MainWindow(QMainWindow):
@@ -186,6 +191,7 @@ class MainWindow(QMainWindow):
         self._connection_worker: OpenVPNConnectionWorker | None = None
         self._connection_error: str | None = None
         self._disconnect_requested = False
+        self._connection_ever_established = False
         self._servers: list = []
         self._visible_servers: list = []
         self._source = ""
@@ -567,6 +573,7 @@ class MainWindow(QMainWindow):
 
         self._connection_error = None
         self._disconnect_requested = False
+        self._connection_ever_established = False
         self._connection_worker = OpenVPNConnectionWorker(
             executable,
             server,
@@ -624,10 +631,11 @@ class MainWindow(QMainWindow):
             "EXITING": "OpenVPN در حال خروج از تونل است…",
         }
         self.status_label.setText(
-            state_messages.get(state, f"وضعیت OpenVPN: {state}")
+            state_messages.get(state, state)
         )
 
     def _on_connection_connected(self) -> None:
+        self._connection_ever_established = True
         self.status_label.setText(
             "اتصال VPN برقرار شد. برای پایان، از دکمه «قطع اتصال» استفاده کن."
         )
@@ -650,12 +658,15 @@ class MainWindow(QMainWindow):
 
         if self._connection_error:
             self.status_label.setText("اتصال VPN برقرار نشد.")
-        elif self._disconnect_requested:
+        elif self._disconnect_requested and self._connection_ever_established:
             self.status_label.setText("اتصال VPN به‌طور امن قطع شد.")
+        elif self._disconnect_requested:
+            self.status_label.setText("تلاش برای اتصال VPN لغو شد.")
         else:
             self.status_label.setText("فرایند OpenVPN پایان یافت.")
 
         self._disconnect_requested = False
+        self._connection_ever_established = False
 
     def check_openvpn_installation(self) -> None:
         if self._is_busy():
