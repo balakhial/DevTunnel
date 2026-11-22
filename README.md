@@ -59,7 +59,7 @@ Every connection requires an explicit in-app confirmation. Public relays are ope
 
 DevTunnel does not automatically elevate privileges or install network drivers. Depending on the OpenVPN version and Windows driver/service setup, a connection may require the OpenVPN Interactive Service or manually starting DevTunnel with the required privileges. The implementation is experimental and has not yet been exercised on the user's Windows machine.
 
-Connection setup also requires the official https://www.vpngate.net/api/iphone/ endpoint to be reachable at connection time. If that endpoint is blocked, DevTunnel deliberately refuses to use the unauthenticated HTTP mirror for a tunnel profile.
+Connection setup first tries the official https://www.vpngate.net/api/iphone/ endpoint. If it is unreachable, DevTunnel can use a separately maintained community HTTPS snapshot from GeorgeXie2333/vpngate-list-mirror. The snapshot is pinned to a full Git commit, its exact CSV byte length and SHA-256 are checked, its source URL must identify the official VPN Gate API, and it is rejected if older than 24 hours. A same-commit GitHub Raw URL is used if the CDN download fails. These checks protect file integrity and cross-version consistency; because the index and files share one publisher, they do not independently authenticate that publisher or prove that the publisher copied the official source honestly. The app discloses this fallback in the confirmation dialog. The unauthenticated HTTP mirror tested for discovery is never used for a connection profile.
 ## Local OpenVPN prerequisite check
 
 Official Windows Community installer: https://openvpn.net/community-downloads/
