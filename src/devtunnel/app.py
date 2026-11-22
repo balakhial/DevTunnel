@@ -31,6 +31,7 @@ from devtunnel.core.diagnostics import (
     check_servers_reachability,
 )
 from devtunnel.core.export import export_servers_to_csv
+from devtunnel.core.openvpn import locate_openvpn_executable
 from devtunnel.core.sorting import sort_servers
 from devtunnel.providers.vpngate import (
     VPN_GATE_MIRROR_API_URL,
@@ -147,10 +148,19 @@ class MainWindow(QMainWindow):
         self.export_button.setEnabled(False)
         self.export_button.clicked.connect(self.export_current_servers)
 
+        self.openvpn_check_button = QPushButton("بررسی نصب OpenVPN")
+        self.openvpn_check_button.setToolTip(
+            "فقط مسیر فایل اجرایی را بررسی می‌کند؛ چیزی نصب یا اجرا نمی‌شود."
+        )
+        self.openvpn_check_button.clicked.connect(
+            self.check_openvpn_installation
+        )
+
         action_layout = QHBoxLayout()
         action_layout.addWidget(self.refresh_button)
         action_layout.addWidget(self.check_button)
         action_layout.addWidget(self.export_button)
+        action_layout.addWidget(self.openvpn_check_button)
         action_layout.addStretch()
 
         # --------------------------------------------------
@@ -381,6 +391,23 @@ class MainWindow(QMainWindow):
         )
         self.export_button.setEnabled(
             not busy and bool(self._visible_servers)
+        )
+        self.openvpn_check_button.setEnabled(not busy)
+
+    def check_openvpn_installation(self) -> None:
+        if self._is_busy():
+            return
+
+        executable = locate_openvpn_executable()
+        if executable is None:
+            self.status_label.setText(
+                "OpenVPN CLI پیدا نشد. DevTunnel چیزی نصب یا اجرا نکرده است."
+            )
+            return
+
+        self.status_label.setText(
+            f"OpenVPN CLI پیدا شد: {executable}. "
+            "هنوز هیچ اتصال VPN برقرار نشده است."
         )
 
     def check_servers(self) -> None:
