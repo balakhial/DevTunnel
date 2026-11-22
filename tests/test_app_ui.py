@@ -165,3 +165,30 @@ def test_openvpn_check_reports_missing_executable(qapp, monkeypatch):
 
     assert "پیدا نشد" in window.status_label.text()
     window.close()
+
+
+
+def test_connection_attempt_canceled_before_tunnel_is_not_reported_as_disconnected(qapp):
+    window = MainWindow()
+    window._connection_worker = None
+    window._connection_error = None
+    window._disconnect_requested = True
+    window._connection_ever_established = False
+
+    window._on_connection_finished()
+
+    assert window.status_label.text() == "تلاش برای اتصال VPN لغو شد."
+    window.close()
+
+
+def test_completed_connection_reports_graceful_disconnect(qapp):
+    window = MainWindow()
+    window._connection_worker = None
+    window._connection_error = None
+    window._disconnect_requested = True
+    window._connection_ever_established = True
+
+    window._on_connection_finished()
+
+    assert window.status_label.text() == "اتصال VPN به‌طور امن قطع شد."
+    window.close()
