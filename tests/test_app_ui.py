@@ -52,6 +52,7 @@ def test_window_initializes_without_enabling_server_actions(qapp):
     assert window.table.rowCount() == 0
     assert not window.check_button.isEnabled()
     assert not window.export_button.isEnabled()
+    assert window.openvpn_check_button.isEnabled()
 
     window.close()
 
@@ -134,4 +135,33 @@ def test_csv_button_exports_currently_filtered_rows(qapp, monkeypatch, tmp_path)
     assert len(rows) == 2
     assert rows[1][1] == "8.8.8.8"
 
+    window.close()
+
+
+
+def test_openvpn_check_reports_found_executable(qapp, monkeypatch):
+    window = MainWindow()
+    executable = r"C:\Program Files\OpenVPN\bin\openvpn.exe"
+    monkeypatch.setattr(
+        "devtunnel.app.locate_openvpn_executable",
+        lambda: executable,
+    )
+
+    window.check_openvpn_installation()
+
+    assert executable in window.status_label.text()
+    assert "هیچ اتصال VPN برقرار نشده" in window.status_label.text()
+    window.close()
+
+
+def test_openvpn_check_reports_missing_executable(qapp, monkeypatch):
+    window = MainWindow()
+    monkeypatch.setattr(
+        "devtunnel.app.locate_openvpn_executable",
+        lambda: None,
+    )
+
+    window.check_openvpn_installation()
+
+    assert "پیدا نشد" in window.status_label.text()
     window.close()
