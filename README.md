@@ -20,6 +20,8 @@ src/devtunnel/
   core/models.py         # Provider-independent data models
   core/sorting.py        # Stable semantic sorting for server rows
   core/diagnostics.py    # Safe, bounded ICMP reachability checks
+  core/export.py         # Atomic, spreadsheet-safe CSV export
+  core/openvpn.py        # Read-only local OpenVPN CLI discovery
   providers/base.py      # Provider interface
   providers/vpngate.py   # VPN Gate CSV client, parser and mirror fallback
 ```
@@ -44,6 +46,10 @@ ICMP is commonly filtered or rate-limited by networks and relay operators. A mis
 ## CSV export
 
 The desktop app can export the currently filtered and sorted server rows, including provider metrics and local reachability results, to a UTF-8 CSV file suitable for spreadsheet applications. Export is atomic, excludes OpenVPN profile/certificate material, and escapes untrusted text that could otherwise be interpreted as a spreadsheet formula.
+
+## Local OpenVPN prerequisite check
+
+DevTunnel can look for the OpenVPN command-line executable on `PATH` and in standard Windows OpenVPN Community Edition installation directories. This is a read-only filesystem check: it does not install, launch, elevate or configure OpenVPN. Finding the executable is only a prerequisite check, not a VPN connection test.
 
 ## Requirements
 
@@ -74,11 +80,12 @@ python -m pytest
 1. Project foundation, VPN Gate discovery, server list UI, filters and semantic sorting. (implemented)
 2. Bounded ICMP reachability diagnostics and local latency display. (implemented; ICMP limitations apply)
 3. Filtered CSV export of server metadata and diagnostics. (implemented)
-4. OpenVPN profile acquisition and validation from authenticated/trustworthy sources.
-5. OpenVPN integration with explicit user consent, executable discovery and safe process management.
-6. Connection status, IP verification and disconnect/recovery flows.
-7. Developer proxy profiles for Android Studio / Gradle / Git.
-8. Packaging, installer, signing and release automation.
+4. Read-only OpenVPN CLI discovery. (implemented)
+5. OpenVPN profile acquisition and validation from authenticated/trustworthy sources.
+6. OpenVPN integration with explicit user consent and safe process management.
+7. Connection status, IP verification and disconnect/recovery flows.
+8. Developer proxy profiles for Android Studio / Gradle / Git.
+9. Packaging, installer, signing and release automation.
 
 ## Security notes
 
