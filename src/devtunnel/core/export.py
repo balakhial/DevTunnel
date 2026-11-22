@@ -27,7 +27,7 @@ _HEADERS = [
 def _spreadsheet_safe(value: object) -> str:
     """Prevent untrusted text cells from being interpreted as formulas."""
     text = str(value)
-    if text.startswith(("=", "+", "-", "@", "\t", "\r")):
+    if text.lstrip(" \\t\\r\\n").startswith(("=", "+", "-", "@")):
         return "'" + text
     return text
 
