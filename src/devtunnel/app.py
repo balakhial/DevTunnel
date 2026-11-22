@@ -349,6 +349,9 @@ class MainWindow(QMainWindow):
         self._worker.finished.connect(
             self._on_refresh_finished
         )
+        self._worker.finished.connect(
+            self._worker.deleteLater
+        )
 
         self._worker.start()
 
@@ -399,6 +402,9 @@ class MainWindow(QMainWindow):
         self._check_worker.succeeded.connect(self._handle_check_success)
         self._check_worker.failed.connect(self._show_error)
         self._check_worker.finished.connect(self._on_check_finished)
+        self._check_worker.finished.connect(
+            self._check_worker.deleteLater
+        )
         self._check_worker.start()
 
     def _on_check_progress(self, completed: int, total: int) -> None:
