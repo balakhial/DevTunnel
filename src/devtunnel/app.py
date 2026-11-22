@@ -557,8 +557,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "OpenVPN نصب نیست",
-                "فایل اجرایی OpenVPN پیدا نشد. ابتدا OpenVPN Community "
-                "را از وب‌سایت رسمی نصب کن؛ DevTunnel چیزی را خودکار نصب نمی‌کند.",
+                "فایل اجرایی OpenVPN پیدا نشد. ابتدا OpenVPN Community را "
+                "از نشانی رسمی زیر نصب کن؛ DevTunnel چیزی را خودکار نصب نمی‌کند.\\n\\n"
+                "https://openvpn.net/community-downloads/",
             )
             return
 
