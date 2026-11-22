@@ -1,6 +1,5 @@
 """Tests for bounded and safe relay reachability diagnostics."""
 
-from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import threading
 import time
