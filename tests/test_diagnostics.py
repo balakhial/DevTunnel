@@ -170,3 +170,48 @@ def test_concurrency_limit_is_validated(max_workers):
             max_workers=max_workers,
             probe=lambda ip, _timeout: ReachabilityResult(ip, True, 1.0),
         )
+
+def test_probe_reports_missing_ping_utility(monkeypatch):
+    def fake_run(*_args, **_kwargs):
+        raise FileNotFoundError("ping")
+
+    monkeypatch.setattr(diagnostics.subprocess, "run", fake_run)
+
+    result = probe_host("8.8.8.8")
+
+    assert result.reachable is None
+    assert result.error == "ping_utility_not_found"
+
+
+def test_successful_probe_can_have_unknown_latency(monkeypatch):
+    class Completed:
+        returncode = 0
+        stdout = "Reply from 8.8.8.8: bytes=32 TTL=117"
+        stderr = ""
+
+    monkeypatch.setattr(
+        diagnostics.subprocess,
+        "run",
+        lambda *_args, **_kwargs: Completed(),
+    )
+
+    result = probe_host("8.8.8.8")
+
+    assert result.reachable is True
+    assert result.latency_ms is None
+
+
+def test_probe_timeout_range_is_validated():
+    with pytest.raises(ValueError):
+        probe_host("8.8.8.8", timeout_ms=100)
+
+
+def test_unexpected_probe_exception_is_returned_as_unavailable():
+    results = check_servers_reachability(
+        [make_server("8.8.8.8")],
+        probe=lambda *_args: (_ for _ in ()).throw(RuntimeError("synthetic")),
+    )
+
+    assert len(results) == 1
+    assert results[0].reachable is None
+    assert results[0].error == "probe_failed: synthetic"
