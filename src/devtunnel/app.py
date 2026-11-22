@@ -2,6 +2,8 @@
 """Desktop application for DevTunnel server discovery."""
 
 import sys
+import threading
+import time
 import traceback
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -33,6 +35,7 @@ from devtunnel.core.diagnostics import (
 from devtunnel.core.export import export_servers_to_csv
 from devtunnel.core.openvpn import locate_openvpn_executable
 from devtunnel.core.sorting import sort_servers
+from devtunnel.core.vpn_session import OpenVPNSession, OpenVPNSessionError
 from devtunnel.providers.vpngate import (
     VPN_GATE_MIRROR_API_URL,
     VpnGateProvider,
@@ -83,6 +86,92 @@ class ServerCheckWorker(QThread):
             self.failed.emit(traceback.format_exc())
 
 
+class OpenVPNConnectionWorker(QThread):
+    """Fetch a trusted profile and own the OpenVPN process until disconnect."""
+
+    state_changed = Signal(str)
+    connected = Signal()
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        executable,
+        server: VpnServer,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._executable = executable
+        self._server = server
+        self._stop_requested = threading.Event()
+
+    def request_disconnect(self) -> None:
+        self._stop_requested.set()
+
+    def run(self) -> None:
+        session: OpenVPNSession | None = None
+        try:
+            self.state_changed.emit(
+                "در حال دریافت پروفایل تازه از API رسمی و امن VPN Gate…"
+            )
+            profile = VpnGateProvider().fetch_server_profile(
+                self._server.ip_address
+            )
+            if self._stop_requested.is_set():
+                return
+
+            session = OpenVPNSession(
+                self._executable,
+                profile,
+                self._server.ip_address,
+            )
+            self.state_changed.emit(
+                "در حال راه‌اندازی OpenVPN و رابط مدیریتی محلی…"
+            )
+            session.start()
+
+            connect_deadline = time.monotonic() + 180.0
+            connected_once = False
+
+            while not self._stop_requested.is_set():
+                process = session.process
+                if process is None:
+                    raise OpenVPNSessionError(
+                        "فرایند OpenVPN پیش از پایان نشست متوقف شد."
+                    )
+
+                exit_code = process.poll()
+                if exit_code is not None:
+                    recent = "\n".join(session.recent_logs[-8:])
+                    detail = f"\n{recent}" if recent else ""
+                    raise OpenVPNSessionError(
+                        f"فرایند OpenVPN با کد {exit_code} خارج شد.{detail}"
+                    )
+
+                messages = session.poll_messages(timeout=0.5)
+                for message in messages:
+                    if message.startswith(">STATE:"):
+                        fields = message[len(">STATE:"):].split(",")
+                        if len(fields) > 1:
+                            state = fields[1]
+                            self.state_changed.emit(state)
+                            if state == "CONNECTED" and not connected_once:
+                                connected_once = True
+                                self.connected.emit()
+
+                if not connected_once and time.monotonic() >= connect_deadline:
+                    raise OpenVPNSessionError(
+                        "پس از ۱۸۰ ثانیه اتصال برقرار نشد. "
+                        "می‌توانی سرور دیگری را امتحان کنی."
+                    )
+
+        except Exception as exc:
+            if not self._stop_requested.is_set():
+                self.failed.emit(str(exc))
+        finally:
+            if session is not None:
+                session.stop()
+
+
 class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
@@ -93,6 +182,7 @@ class MainWindow(QMainWindow):
 
         self._worker: ServerRefreshWorker | None = None
         self._check_worker: ServerCheckWorker | None = None
+        self._connection_worker: OpenVPNConnectionWorker | None = None
         self._servers: list = []
         self._visible_servers: list = []
         self._source = ""
@@ -156,11 +246,21 @@ class MainWindow(QMainWindow):
             self.check_openvpn_installation
         )
 
+        self.connect_button = QPushButton("اتصال به سرور انتخاب‌شده")
+        self.connect_button.setEnabled(False)
+        self.connect_button.clicked.connect(self.connect_selected_server)
+
+        self.disconnect_button = QPushButton("قطع اتصال")
+        self.disconnect_button.setEnabled(False)
+        self.disconnect_button.clicked.connect(self.disconnect_vpn)
+
         action_layout = QHBoxLayout()
         action_layout.addWidget(self.refresh_button)
         action_layout.addWidget(self.check_button)
         action_layout.addWidget(self.export_button)
         action_layout.addWidget(self.openvpn_check_button)
+        action_layout.addWidget(self.connect_button)
+        action_layout.addWidget(self.disconnect_button)
         action_layout.addStretch()
 
         # --------------------------------------------------
@@ -233,6 +333,9 @@ class MainWindow(QMainWindow):
         header = self.table.horizontalHeader()
         header.setSortIndicatorShown(False)
         header.sectionClicked.connect(self._on_header_clicked)
+        self.table.itemSelectionChanged.connect(
+            self._update_connection_controls
+        )
 
         # --------------------------------------------------
         # Main layout
@@ -382,6 +485,10 @@ class MainWindow(QMainWindow):
                 self._check_worker is not None
                 and self._check_worker.isRunning()
             )
+            or (
+                self._connection_worker is not None
+                and self._connection_worker.isRunning()
+            )
         )
 
     def _set_busy(self, busy: bool) -> None:
@@ -393,6 +500,145 @@ class MainWindow(QMainWindow):
             not busy and bool(self._visible_servers)
         )
         self.openvpn_check_button.setEnabled(not busy)
+        self.connect_button.setEnabled(
+            not busy and self._selected_server_for_connection() is not None
+        )
+        self.disconnect_button.setEnabled(
+            self._connection_worker is not None
+            and self._connection_worker.isRunning()
+        )
+
+    def _selected_server_for_connection(self) -> VpnServer | None:
+        row = self.table.currentRow()
+        if row < 0 or row >= len(self._visible_servers):
+            return None
+        server = self._visible_servers[row]
+        return server if server.supports_openvpn else None
+
+    def _update_connection_controls(self) -> None:
+        self.connect_button.setEnabled(
+            not self._is_busy()
+            and self._selected_server_for_connection() is not None
+        )
+
+    def connect_selected_server(self) -> None:
+        if self._is_busy():
+            return
+
+        server = self._selected_server_for_connection()
+        if server is None:
+            QMessageBox.information(
+                self,
+                "انتخاب سرور",
+                "ابتدا یک سرور دارای OpenVPN را از جدول انتخاب کن.",
+            )
+            return
+
+        executable = locate_openvpn_executable()
+        if executable is None:
+            QMessageBox.warning(
+                self,
+                "OpenVPN نصب نیست",
+                "فایل اجرایی OpenVPN پیدا نشد. ابتدا OpenVPN Community "
+                "را از وب‌سایت رسمی نصب کن؛ DevTunnel چیزی را خودکار نصب نمی‌کند.",
+            )
+            return
+
+        answer = QMessageBox.warning(
+            self,
+            "تأیید اتصال VPN",
+            "این سرور یک رله عمومی و داوطلبانه است. با اتصال ممکن است "
+            "مسیر پیش‌فرض اینترنت و DNS ویندوز از طریق اپراتور این سرور "
+            "عبور کند. اپراتور رله می‌تواند ترافیک رمزنگاری‌نشده را ببیند؛ "
+            "برای حساب‌های حساس یا اطلاعات محرمانه از رله عمومی استفاده نکن.\n\n"
+            "پروفایل اتصال فقط از API رسمی HTTPS دریافت و پیش از اجرا بررسی "
+            "می‌شود. با این حال سرور مقصد شخص ثالث است.\n\n"
+            f"سرور: {server.ip_address} — {server.country}\n"
+            "اتصال برقرار شود؟",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self._connection_worker = OpenVPNConnectionWorker(
+            executable,
+            server,
+            self,
+        )
+        self._connection_worker.state_changed.connect(
+            self._on_connection_state
+        )
+        self._connection_worker.connected.connect(
+            self._on_connection_connected
+        )
+        self._connection_worker.failed.connect(
+            self._on_connection_failed
+        )
+        self._connection_worker.finished.connect(
+            self._on_connection_finished
+        )
+        self._connection_worker.finished.connect(
+            self._connection_worker.deleteLater
+        )
+
+        self._set_busy(True)
+        self.disconnect_button.setEnabled(True)
+        self.status_label.setText(
+            f"در حال آماده‌سازی اتصال به {server.ip_address}…"
+        )
+        self._connection_worker.start()
+
+    def disconnect_vpn(self) -> None:
+        worker = self._connection_worker
+        if worker is None or not worker.isRunning():
+            return
+
+        self.disconnect_button.setEnabled(False)
+        self.status_label.setText(
+            "در حال ارسال فرمان قطع امن به OpenVPN…"
+        )
+        worker.request_disconnect()
+
+    def _on_connection_state(self, state: str) -> None:
+        state_messages = {
+            "CONNECTING": "در حال اتصال به سرور VPN…",
+            "WAIT": "منتظر پاسخ سرور VPN…",
+            "AUTH": "در حال احراز هویت با سرور…",
+            "GET_CONFIG": "در حال دریافت تنظیمات تونل…",
+            "ASSIGN_IP": "در حال دریافت آدرس شبکه VPN…",
+            "ADD_ROUTES": "در حال تنظیم مسیرهای شبکه…",
+            "CONNECTED": "اتصال VPN برقرار شد.",
+            "RECONNECTING": "ارتباط موقتاً قطع شد؛ OpenVPN در حال تلاش مجدد است…",
+            "RESOLVE": "در حال شناسایی آدرس سرور…",
+            "TCP_CONNECT": "در حال برقراری ارتباط TCP…",
+            "EXITING": "OpenVPN در حال خروج از تونل است…",
+        }
+        self.status_label.setText(
+            state_messages.get(state, f"وضعیت OpenVPN: {state}")
+        )
+
+    def _on_connection_connected(self) -> None:
+        self.status_label.setText(
+            "اتصال VPN برقرار شد. برای پایان، از دکمه «قطع اتصال» استفاده کن."
+        )
+
+    def _on_connection_failed(self, error: str) -> None:
+        self.status_label.setText("اتصال VPN برقرار نشد.")
+        QMessageBox.critical(
+            self,
+            "خطا در اتصال VPN",
+            error,
+        )
+
+    def _on_connection_finished(self) -> None:
+        self._connection_worker = None
+        self.disconnect_button.setEnabled(False)
+        self.progress_bar.setVisible(False)
+        self._set_busy(False)
+        self.status_label.setText(
+            "نشست OpenVPN پایان یافت و فرایند اتصال بسته شد."
+        )
 
     def check_openvpn_installation(self) -> None:
         if self._is_busy():
@@ -589,6 +835,7 @@ class MainWindow(QMainWindow):
         self.export_button.setEnabled(
             not self._is_busy() and bool(self._visible_servers)
         )
+        self._update_connection_controls()
         self.result_label.setText(
             f"تعداد سرورها: {len(filtered)} "
             f"از {len(self._servers)}"
@@ -697,7 +944,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         if self._is_busy():
             self.status_label.setText(
-                "یک عملیات شبکه در حال اجراست؛ پس از پایان آن می‌توانید برنامه را ببندید."
+                "یک عملیات شبکه یا تونل VPN فعال است؛ ابتدا آن را از داخل برنامه متوقف کن."
             )
             event.ignore()
             return
