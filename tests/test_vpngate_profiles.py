@@ -57,6 +57,9 @@ class FakeResponse:
     def read(self, _limit: int) -> bytes:
         return self.payload
 
+    def geturl(self) -> str:
+        return VPN_GATE_API_URL
+
 
 def test_profile_is_retrieved_only_from_official_https_api(monkeypatch):
     requests = []
@@ -128,4 +131,20 @@ def test_profile_fetch_rejects_invalid_base64(monkeypatch):
     )
 
     with pytest.raises(VpnGateError, match="invalid OpenVPN profile"):
+        VpnGateProvider().fetch_server_profile("8.8.8.8")
+
+
+
+def test_profile_fetch_rejects_downgraded_or_untrusted_redirect(monkeypatch):
+    class RedirectedResponse(FakeResponse):
+        def geturl(self):
+            return "http://www.vpngate.net/api/iphone/"
+
+    monkeypatch.setattr(
+        vpngate,
+        "urlopen",
+        lambda *_args, **_kwargs: RedirectedResponse(make_csv(PROFILE)),
+    )
+
+    with pytest.raises(VpnGateError, match="redirected to an untrusted URL"):
         VpnGateProvider().fetch_server_profile("8.8.8.8")
