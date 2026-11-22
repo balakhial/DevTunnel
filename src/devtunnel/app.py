@@ -23,10 +23,14 @@ from PySide6.QtWidgets import (
 )
 
 from devtunnel import __version__
+from devtunnel.core.diagnostics import (
+    DEFAULT_TIMEOUT_MS,
+    ReachabilityResult,
+    check_servers_reachability,
+)
 from devtunnel.core.sorting import sort_servers
 from devtunnel.providers.vpngate import (
     VPN_GATE_MIRROR_API_URL,
-    VpnGateError,
     VpnGateProvider,
 )
 
@@ -50,6 +54,31 @@ class ServerRefreshWorker(QThread):
             self.failed.emit(traceback.format_exc())
 
 
+class ServerCheckWorker(QThread):
+    """Run bounded ICMP probes without blocking the GUI thread."""
+
+    progress = Signal(int, int)
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, servers: list, parent=None) -> None:
+        super().__init__(parent)
+        self._servers = list(servers)
+
+    def run(self) -> None:
+        try:
+            results = check_servers_reachability(
+                self._servers,
+                progress_callback=lambda done, total: self.progress.emit(
+                    done,
+                    total,
+                ),
+            )
+            self.succeeded.emit(results)
+        except Exception:
+            self.failed.emit(traceback.format_exc())
+
+
 class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
@@ -59,8 +88,10 @@ class MainWindow(QMainWindow):
         self.resize(1050, 680)
 
         self._worker: ServerRefreshWorker | None = None
+        self._check_worker: ServerCheckWorker | None = None
         self._servers: list = []
         self._source = ""
+        self._reachability: dict[str, ReachabilityResult] = {}
         self._sort_column: int | None = None
         self._sort_descending = False
 
@@ -100,6 +131,19 @@ class MainWindow(QMainWindow):
             self.refresh_servers
         )
 
+        self.check_button = QPushButton(
+            "بررسی دسترس‌پذیری سرورها"
+        )
+        self.check_button.setEnabled(False)
+        self.check_button.clicked.connect(
+            self.check_servers
+        )
+
+        action_layout = QHBoxLayout()
+        action_layout.addWidget(self.refresh_button)
+        action_layout.addWidget(self.check_button)
+        action_layout.addStretch()
+
         # --------------------------------------------------
         # Filters
         # --------------------------------------------------
@@ -132,16 +176,18 @@ class MainWindow(QMainWindow):
         # Server table
         # --------------------------------------------------
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 8)
 
         self.table.setHorizontalHeaderLabels(
             [
                 "کشور",
                 "آدرس IP",
-                "Ping (ms)",
+                "Ping منبع (ms)",
                 "سرعت (Mbps)",
                 "کاربران هم‌زمان",
                 "OpenVPN",
+                "دسترس‌پذیری",
+                "تأخیر محلی (ms)",
             ]
         )
 
@@ -179,7 +225,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(subtitle)
         layout.addWidget(self.status_label)
         layout.addWidget(self.progress_bar)
-        layout.addWidget(self.refresh_button)
+        layout.addLayout(action_layout)
         layout.addLayout(filter_layout)
         layout.addWidget(self.result_label)
         layout.addWidget(self.table)
@@ -270,14 +316,11 @@ class MainWindow(QMainWindow):
 
     def refresh_servers(self) -> None:
 
-        if (
-            self._worker is not None
-            and self._worker.isRunning()
-        ):
+        if self._is_busy():
             return
 
-        self.refresh_button.setEnabled(False)
-
+        self._set_busy(True)
+        self.progress_bar.setRange(0, 0)
         self.progress_bar.setVisible(True)
 
         self.status_label.setText(
@@ -305,9 +348,83 @@ class MainWindow(QMainWindow):
     # ======================================================
 
     def _on_refresh_finished(self) -> None:
-
         self.progress_bar.setVisible(False)
-        self.refresh_button.setEnabled(True)
+        self.progress_bar.setRange(0, 0)
+        self._worker = None
+        self._set_busy(False)
+
+    def _is_busy(self) -> bool:
+        return (
+            (self._worker is not None and self._worker.isRunning())
+            or (
+                self._check_worker is not None
+                and self._check_worker.isRunning()
+            )
+        )
+
+    def _set_busy(self, busy: bool) -> None:
+        self.refresh_button.setEnabled(not busy)
+        self.check_button.setEnabled(
+            not busy and bool(self._servers)
+        )
+
+    def check_servers(self) -> None:
+        if self._is_busy() or not self._servers:
+            return
+
+        self._set_busy(True)
+        self.progress_bar.setRange(0, len(self._servers))
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.status_label.setText(
+            "در حال بررسی دسترس‌پذیری سرورها با حداکثر "
+            f"۱۲ درخواست هم‌زمان و مهلت {DEFAULT_TIMEOUT_MS} میلی‌ثانیه…"
+        )
+
+        self._check_worker = ServerCheckWorker(self._servers, self)
+        self._check_worker.progress.connect(self._on_check_progress)
+        self._check_worker.succeeded.connect(self._handle_check_success)
+        self._check_worker.failed.connect(self._show_error)
+        self._check_worker.finished.connect(self._on_check_finished)
+        self._check_worker.start()
+
+    def _on_check_progress(self, completed: int, total: int) -> None:
+        self.progress_bar.setRange(0, total)
+        self.progress_bar.setValue(completed)
+        self.status_label.setText(
+            f"در حال بررسی دسترسی سرورها: {completed} از {total}"
+        )
+
+    def _handle_check_success(
+        self,
+        results: list[ReachabilityResult],
+    ) -> None:
+        self._reachability = {
+            result.ip_address: result
+            for result in results
+        }
+        self._apply_filters()
+
+        reachable = sum(
+            result.reachable is True for result in results
+        )
+        unreachable = sum(
+            result.reachable is False for result in results
+        )
+        skipped = len(results) - reachable - unreachable
+
+        self.status_label.setText(
+            "بررسی پایان یافت: "
+            f"{reachable} پاسخ‌گو، {unreachable} بدون پاسخ، "
+            f"{skipped} بررسی‌نشده. "
+            "پاسخ ICMP تضمین‌کننده امکان اتصال VPN نیست."
+        )
+
+    def _on_check_finished(self) -> None:
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 0)
+        self._check_worker = None
+        self._set_busy(False)
 
     def _handle_success(
         self,
@@ -343,6 +460,8 @@ class MainWindow(QMainWindow):
 
         self._servers = list(servers)
         self._source = source
+        self._reachability.clear()
+        self._set_busy(False)
 
         current_country = self.country_filter.currentText()
 
@@ -416,6 +535,7 @@ class MainWindow(QMainWindow):
                 filtered,
                 column=self._sort_column,
                 descending=self._sort_descending,
+                reachability=self._reachability,
             )
 
         self._populate_table(filtered)
@@ -459,6 +579,24 @@ class MainWindow(QMainWindow):
                 else "—"
             )
 
+            check = self._reachability.get(server.ip_address)
+            if check is None:
+                reachability_text = "بررسی‌نشده"
+                local_latency = "—"
+            elif check.reachable is True:
+                reachability_text = "در دسترس"
+                local_latency = (
+                    f"{check.latency_ms:.1f}"
+                    if check.latency_ms is not None
+                    else "نامشخص"
+                )
+            elif check.reachable is False:
+                reachability_text = "بدون پاسخ"
+                local_latency = "—"
+            else:
+                reachability_text = "قابل بررسی نیست"
+                local_latency = "—"
+
             values = [
                 server.country,
                 server.ip_address,
@@ -466,6 +604,8 @@ class MainWindow(QMainWindow):
                 f"{server.speed_mbps:.2f}",
                 str(server.sessions),
                 "بله" if server.supports_openvpn else "خیر",
+                reachability_text,
+                local_latency,
             ]
 
             for column, value in enumerate(values):
