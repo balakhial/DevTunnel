@@ -7,6 +7,8 @@ The fallback is the HTTP mirror tested for this installation. HTTP does not
 authenticate the response; data received from it must remain untrusted.
 """
 
+import base64
+import binascii
 import csv
 import io
 import ipaddress
@@ -14,6 +16,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from devtunnel.core.models import VpnServer
+from devtunnel.core.profiles import OpenVPNProfileError, validate_vpngate_profile
 
 VPN_GATE_API_URL = "https://www.vpngate.net/api/iphone/"
 # Tested reachable by the user when the primary hostname was inaccessible.
@@ -134,3 +137,76 @@ class VpnGateProvider:
             "Could not download the VPN Gate server list from the primary endpoint "
             "or its configured mirror. " + " | ".join(errors)
         )
+
+    def fetch_server_profile(self, ip_address: str) -> str:
+        """Fetch one server's OpenVPN profile from the official HTTPS API only.
+
+        This deliberately does not fall back to the HTTP mirror. The CSV list
+        and profile must be re-fetched over authenticated HTTPS at connection
+        time; a stale or mirror-provided profile must never be launched.
+        """
+        try:
+            selected_ip = str(ipaddress.ip_address(ip_address))
+        except ValueError as exc:
+            raise VpnGateError("The selected server IP address is invalid.") from exc
+
+        if not ipaddress.ip_address(selected_ip).is_global:
+            raise VpnGateError("The selected server IP address is not public.")
+
+        request = Request(
+            VPN_GATE_API_URL,
+            headers={"User-Agent": _USER_AGENT, "Accept": "text/csv,*/*"},
+        )
+        try:
+            with urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+                payload_bytes = response.read(_MAX_RESPONSE_BYTES + 1)
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            raise VpnGateError(
+                "A connection profile can only be obtained from VPN Gate's "
+                "authenticated HTTPS API. The official API could not be reached; "
+                "the HTTP mirror is intentionally not used for VPN connections. "
+                f"Details: {exc}"
+            ) from exc
+
+        if len(payload_bytes) > _MAX_RESPONSE_BYTES:
+            raise VpnGateError("The official VPN Gate response exceeded the 15 MB limit.")
+
+        try:
+            payload = payload_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise VpnGateError("The official VPN Gate response was not valid UTF-8.") from exc
+
+        servers = parse_vpngate_csv(payload)
+        server = next(
+            (item for item in servers if item.ip_address == selected_ip),
+            None,
+        )
+        if server is None:
+            raise VpnGateError(
+                "The selected server is no longer present in the official HTTPS list. "
+                "Refresh the server list and choose another relay."
+            )
+        if not server.supports_openvpn or not server.openvpn_config_base64:
+            raise VpnGateError("The selected server does not publish an OpenVPN profile.")
+
+        try:
+            encoded = b"".join(server.openvpn_config_base64.encode("ascii").split())
+            profile_bytes = base64.b64decode(encoded, validate=True)
+            if not profile_bytes or len(profile_bytes) > 1024 * 1024:
+                raise VpnGateError("The decoded OpenVPN profile is empty or too large.")
+            profile_text = profile_bytes.decode("utf-8-sig")
+        except (UnicodeEncodeError, binascii.Error, UnicodeDecodeError) as exc:
+            raise VpnGateError("The server published an invalid OpenVPN profile.") from exc
+
+        try:
+            safe_profile = validate_vpngate_profile(
+                profile_text,
+                expected_ip=selected_ip,
+            )
+        except OpenVPNProfileError as exc:
+            raise VpnGateError(
+                f"The official OpenVPN profile failed safety validation: {exc}"
+            ) from exc
+
+        self.last_source = VPN_GATE_API_URL
+        return safe_profile
