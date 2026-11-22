@@ -215,3 +215,16 @@ def test_unexpected_probe_exception_is_returned_as_unavailable():
     assert len(results) == 1
     assert results[0].reachable is None
     assert results[0].error == "probe_failed: synthetic"
+
+
+def test_target_count_is_bounded():
+    servers = [
+        make_server(f"11.0.{index // 254}.{index % 254 + 1}")
+        for index in range(501)
+    ]
+
+    with pytest.raises(ValueError, match="At most 500"):
+        check_servers_reachability(
+            servers,
+            probe=lambda ip, _timeout: ReachabilityResult(ip, True, 1.0),
+        )
