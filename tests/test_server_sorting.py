@@ -2,6 +2,7 @@
 
 import pytest
 
+from devtunnel.core.diagnostics import ReachabilityResult
 from devtunnel.core.models import VpnServer
 from devtunnel.core.sorting import sort_servers
 
@@ -109,6 +110,59 @@ def test_sort_openvpn_support():
     assert [server.supports_openvpn for server in result] == [False, True]
 
 
+def test_sort_reachability_with_unknown_results_last():
+    servers = [
+        make_server(ip_address="10.0.0.1"),
+        make_server(ip_address="10.0.0.2"),
+        make_server(ip_address="10.0.0.3"),
+    ]
+    results = {
+        "10.0.0.1": ReachabilityResult("10.0.0.1", False),
+        "10.0.0.2": ReachabilityResult("10.0.0.2", True),
+    }
+
+    ascending = sort_servers(
+        servers, column=6, reachability=results
+    )
+    descending = sort_servers(
+        servers, column=6, descending=True, reachability=results
+    )
+
+    assert [server.ip_address for server in ascending] == [
+        "10.0.0.2",
+        "10.0.0.1",
+        "10.0.0.3",
+    ]
+    assert [server.ip_address for server in descending] == [
+        "10.0.0.1",
+        "10.0.0.2",
+        "10.0.0.3",
+    ]
+
+
+def test_sort_local_latency_numerically_with_missing_last():
+    servers = [
+        make_server(ip_address="10.0.0.1"),
+        make_server(ip_address="10.0.0.2"),
+        make_server(ip_address="10.0.0.3"),
+    ]
+    results = {
+        "10.0.0.1": ReachabilityResult("10.0.0.1", True, 45.0),
+        "10.0.0.2": ReachabilityResult("10.0.0.2", True, 8.5),
+        "10.0.0.3": ReachabilityResult("10.0.0.3", True, None),
+    }
+
+    result = sort_servers(
+        servers, column=7, descending=False, reachability=results
+    )
+
+    assert [server.ip_address for server in result] == [
+        "10.0.0.2",
+        "10.0.0.1",
+        "10.0.0.3",
+    ]
+
+
 def test_invalid_column_raises_value_error():
     with pytest.raises(ValueError):
-        sort_servers([make_server()], column=6)
+        sort_servers([make_server()], column=8)
