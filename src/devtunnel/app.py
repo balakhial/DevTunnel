@@ -573,7 +573,8 @@ class MainWindow(QMainWindow):
             "پروفایل اتصال فقط از API رسمی HTTPS دریافت و پیش از اجرا بررسی "
             "می‌شود. با این حال سرور مقصد شخص ثالث است.\n\n"
             f"سرور: {server.ip_address} — {server.country}\n"
-            f"فایل اجرایی OpenVPN: {executable}\n\n"
+            f"فایل اجرایی OpenVPN: {executable}\n"
+            "پیش از ادامه، مطمئن شو این مسیر متعلق به نصب رسمی OpenVPN است.\n\n"
             "اتصال برقرار شود؟",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -936,6 +937,8 @@ class MainWindow(QMainWindow):
 
     def _populate_table(self, servers: list) -> None:
         self.table.setSortingEnabled(False)
+        self.table.clearSelection()
+        self.table.setCurrentCell(-1, -1)
         self.table.clearContents()
         self.table.setRowCount(len(servers))
 
