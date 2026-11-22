@@ -1,7 +1,10 @@
-"""VPN Gate public CSV provider.
+"""VPN Gate public CSV provider with an explicitly identified mirror fallback.
 
-The endpoint and CSV format are published by VPN Gate:
+The primary endpoint and CSV format are published by VPN Gate:
 https://www.vpngate.net/api/iphone/
+
+The fallback is the HTTP mirror tested for this installation. HTTP does not
+authenticate the response; data received from it must remain untrusted.
 """
 
 import csv
@@ -13,6 +16,9 @@ from urllib.request import Request, urlopen
 from devtunnel.core.models import VpnServer
 
 VPN_GATE_API_URL = "https://www.vpngate.net/api/iphone/"
+# Tested reachable by the user when the primary hostname was inaccessible.
+# Plain HTTP is intentional here but provides no transport authenticity.
+VPN_GATE_MIRROR_API_URL = "http://150.40.105.20:16086/api/iphone/"
 _USER_AGENT = "DevTunnel/0.1.0 (+https://github.com/balakhial/DevTunnel)"
 _TIMEOUT_SECONDS = 20
 _MAX_RESPONSE_BYTES = 15 * 1024 * 1024
@@ -88,29 +94,43 @@ def parse_vpngate_csv(payload: str) -> list[VpnServer]:
 
 
 class VpnGateProvider:
-    """Fetch the current public relay list from the official VPN Gate API."""
+    """Fetch VPN Gate relays, trying the official endpoint before its mirror."""
+
+    def __init__(self) -> None:
+        self.last_source: str | None = None
 
     @property
     def name(self) -> str:
         return "VPN Gate"
 
     def fetch_servers(self) -> list[VpnServer]:
-        request = Request(
-            VPN_GATE_API_URL,
-            headers={"User-Agent": _USER_AGENT, "Accept": "text/csv,*/*"},
+        errors: list[str] = []
+        endpoints = (VPN_GATE_API_URL, VPN_GATE_MIRROR_API_URL)
+
+        for endpoint in endpoints:
+            request = Request(
+                endpoint,
+                headers={"User-Agent": _USER_AGENT, "Accept": "text/csv,*/*"},
+            )
+            try:
+                with urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+                    payload_bytes = response.read(_MAX_RESPONSE_BYTES + 1)
+
+                if len(payload_bytes) > _MAX_RESPONSE_BYTES:
+                    raise VpnGateError("Response exceeded the 15 MB safety limit.")
+
+                payload = payload_bytes.decode("utf-8-sig")
+                servers = parse_vpngate_csv(payload)
+                if not servers:
+                    raise VpnGateError("The response contained no usable VPN servers.")
+
+                self.last_source = endpoint
+                return servers
+            except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, VpnGateError) as exc:
+                errors.append(f"{endpoint}: {exc}")
+
+        self.last_source = None
+        raise VpnGateError(
+            "Could not download the VPN Gate server list from the primary endpoint "
+            "or its configured mirror. " + " | ".join(errors)
         )
-        try:
-            with urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
-                payload_bytes = response.read(_MAX_RESPONSE_BYTES + 1)
-        except (HTTPError, URLError, TimeoutError, OSError) as exc:
-            raise VpnGateError(f"Could not download the VPN Gate server list: {exc}") from exc
-
-        if len(payload_bytes) > _MAX_RESPONSE_BYTES:
-            raise VpnGateError("VPN Gate response exceeded the 15 MB safety limit.")
-
-        try:
-            payload = payload_bytes.decode("utf-8-sig")
-        except UnicodeDecodeError as exc:
-            raise VpnGateError("VPN Gate response was not valid UTF-8.") from exc
-
-        return parse_vpngate_csv(payload)
