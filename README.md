@@ -62,6 +62,8 @@ DevTunnel does not automatically elevate privileges or install network drivers. 
 Connection setup also requires the official https://www.vpngate.net/api/iphone/ endpoint to be reachable at connection time. If that endpoint is blocked, DevTunnel deliberately refuses to use the unauthenticated HTTP mirror for a tunnel profile.
 ## Local OpenVPN prerequisite check
 
+Official Windows Community installer: https://openvpn.net/community-downloads/
+
 DevTunnel can look for the OpenVPN command-line executable on `PATH` and in standard Windows OpenVPN Community Edition installation directories. This is a read-only filesystem check: it does not install, launch, elevate or configure OpenVPN. Finding the executable is only a prerequisite check, not a VPN connection test.
 
 ## Requirements
