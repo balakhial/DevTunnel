@@ -574,7 +574,9 @@ class MainWindow(QMainWindow):
             "می‌شود. با این حال سرور مقصد شخص ثالث است.\n\n"
             f"سرور: {server.ip_address} — {server.country}\n"
             f"فایل اجرایی OpenVPN: {executable}\n"
-            "پیش از ادامه، مطمئن شو این مسیر متعلق به نصب رسمی OpenVPN است.\n\n"
+            "پیش از ادامه، مطمئن شو این مسیر متعلق به نصب رسمی OpenVPN است.\n"
+            "اگر OpenVPN Interactive Service فعال نباشد، ممکن است اجرای DevTunnel "
+            "با دسترسی Administrator لازم شود؛ برنامه خودش دسترسی را ارتقا نمی‌دهد.\n\n"
             "اتصال برقرار شود؟",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
